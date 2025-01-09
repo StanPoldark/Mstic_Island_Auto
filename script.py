@@ -138,21 +138,21 @@ def check_inventory() -> Optional[Dict]:
 def find_seed_inventory_index(inventory: List[Dict]) -> Optional[int]:
     """Find the first slot with rice seeds (materialNo: 10001)"""
     for item in inventory:
-        if item.get('materialNo') == 10002 and item.get('num', 0) > 0:
+        if item.get('materialNo') == 10001 and item.get('num', 0) > 0:
             return item['inventoryIndex']
     return None
 
 def count_bp_seeds(bp: List[Dict]) -> Tuple[int, int]:
     """Count total rice seeds in bp"""
     for item in bp:
-        if item.get('materialNo') == 10002:
+        if item.get('materialNo') == 10001:
             return item.get('materialNum', 0),item.get('backpackIndex', 0)
     return 0,0
 
 def count_seeds(inventory: List[Dict]) -> int:
     """Count total rice seeds in inventory"""
     for item in inventory:
-        if item.get('materialNo') == 10002:
+        if item.get('materialNo') == 10001:
             return item.get('num', 0)
     return 0
 
@@ -160,7 +160,7 @@ def count_seeds(inventory: List[Dict]) -> int:
 def count_rice(bp: List[Dict]) -> int:
     """Count total rice in inventory"""
     for item in bp:
-        if item.get('materialNo') == 10102:
+        if item.get('materialNo') == 10101:
             return item.get('materialNum', 0)
     return 0
 
@@ -194,47 +194,44 @@ def switch(bpIndex:int,invenIndex:int,switchType:int):
         print(f"Error making request: {e}")
         return None
     
-def get_min_remain_time(land_data: List[Dict]) -> int:
-    """获取所有种植的土地中最短的剩余时间"""
-    remain_times = [land.get('remainTime', 0) for land in land_data if land.get('status') is True]
-    return min(remain_times) if remain_times else 0
-
-def all_lands_planted(land_data: List[Dict]) -> bool:
-    """检查是否所有土地都已种植"""
-    return all(land.get('status') is True for land in land_data)
-
 def farm_loop():
     """Main farming loop"""
-    seed_price = 3
-    rice_price = 3.3
-
+    land_index = 1  # Using first land plot
+    seed_price = 0.8
+    rice_price = 0.87
+    
     while True:
         try:
             # Check assets first
             assets = get_assets()
             if not assets or assets.get('code') != 0:
                 print("Failed to get assets")
-                time.sleep(1800)
+                time.sleep(600)
                 continue
                 
             marrow = assets['data']['marrow']
             print(f"Current marrow: {marrow}")
             
-            # Check inventory and BP
+            # Check inventory
+
+            
             bp = check_bp()
+
             bp_seed_count, index = count_bp_seeds(bp)
             rice_count = count_rice(bp)
 
             if bp_seed_count > 0:
-                switch(index, 1, 1)
+                switch(index,1,1)
 
             inventory = check_inventory()
+
             if not inventory:
                 print("Failed to check inventory")
-                time.sleep(1800)
+                time.sleep(600)
                 continue
 
             print(f"Current BP - Seeds: {bp_seed_count}, Rice: {rice_count}")
+
             seed_count = count_seeds(inventory)
             print(f"Current inventory - Seeds: {seed_count}")
             
@@ -242,101 +239,65 @@ def farm_loop():
             land_status = get_land_status()
             if not land_status or land_status.get('code') != 0:
                 print("Failed to check land status")
-                time.sleep(1800)
+                time.sleep(600)
                 continue
             
             land_data = land_status['data']
-            if not land_data:
-                print("Could not find land data")
-                time.sleep(1800)
+            current_land = next((land for land in land_data if land['landIndex'] == land_index), None)
+            
+            if not current_land:
+                print(f"Could not find land with index {land_index}")
+                time.sleep(600)
                 continue
             
-            # 处理收获
-            harvest_count = 0
-            for land in land_data:
-                land_index = land.get('landIndex')
-                if land.get('status') is True:  # 土地上有作物
-                    remain_time = land.get('remainTime', 0)
-                    if remain_time <= 0:
-                        print(f"Harvesting crops on land {land_index}")
-                        gather_result = gather(landIndex=land_index)
-                        if not gather_result or gather_result.get('code') != 0:
-                            print(f"Failed to harvest land {land_index}")
-                            continue
-                        harvest_count += 1
-
-            # 如果有收获，重新检查库存和土地状态
-            if harvest_count > 0:
-                bp = check_bp()
-                rice_count = count_rice(bp)
-                land_status = get_land_status()
-                land_data = land_status['data']
-
-            # 处理种植
-            empty_lands = [land for land in land_data if land.get('status') is False]
-            if empty_lands:
-                if seed_count == 0:
-                    # 如果没有种子，先卖出大米
+            if current_land.get('status') is False:  # Land is empty
+                if seed_count > 0:
+                    # Find seed inventory slot and plant
+                    seed_index = find_seed_inventory_index(inventory)
+                    if seed_index and handle_planting(land_index, seed_index):
+                        print("Successfully planted seeds")
+                    else:
+                        print("Failed to plant seeds")
+                else:
+                    # Sell rice if we have any
                     if rice_count > 0:
                         print(f"Selling {rice_count} rice")
-                        sell_result = sell(material_no=10102, num=rice_count, price=rice_price)
+                        sell_result = sell(material_no=10101, num=rice_count, price=rice_price)
                         if not sell_result or sell_result.get('code') != 0:
                             print("Failed to sell rice")
-                            time.sleep(1800)
+                            time.sleep(600)
                             continue
                     
-                    # 计算并购买新种子
+                    # Calculate and buy new seeds based on available marrow
                     seeds_to_buy = calculate_seed_purchase_amount(marrow, seed_price)
                     if seeds_to_buy > 0:
                         print(f"Buying {seeds_to_buy} new seeds")
-                        buy_result = buy(material_no=10002, num=seeds_to_buy, price=seed_price)
+                        buy_result = buy(material_no=10001, num=seeds_to_buy, price=seed_price)
                         if not buy_result or buy_result.get('code') != 0:
                             print("Failed to buy seeds")
-                            time.sleep(1800)
+                            time.sleep(600)
                             continue
-                        
-                        # 更新库存信息
-                        inventory = check_inventory()
-                        seed_count = count_seeds(inventory)
-
-                # 在所有空地上种植
-                for land in empty_lands:
-                    if seed_count > 0:
-                        land_index = land.get('landIndex')
-                        seed_index = find_seed_inventory_index(inventory)
-                        if seed_index:
-                            print(f"Planting seeds on land {land_index}")
-                            if handle_planting(land_index, seed_index):
-                                print(f"Successfully planted seeds on land {land_index}")
-                                seed_count -= 1
-                                # 更新库存中的种子数量
-                                for item in inventory:
-                                    if item['inventoryIndex'] == seed_index:
-                                        item['num'] = max(0, item['num'] - 1)
-                            else:
-                                print(f"Failed to plant seeds on land {land_index}")
-                    else:
-                        break
-
-            # 检查是否所有土地都已种植
-            land_status = get_land_status()
-            land_data = land_status['data']
-            if all_lands_planted(land_data):
-                # 获取最短剩余时间
-                min_time = get_min_remain_time(land_data)
-                if min_time > 0:
-                    print(f"All lands planted. Waiting for {min_time} seconds until next harvest...")
-                    # 等待到最短剩余时间前10秒
-                    sleep_time = max(min_time - 10, 0)
-                    time.sleep(sleep_time)
+            else:  # Land has plants
+                remain_time = current_land.get('remainTime', 0)
+                if remain_time <= 0:
+                    # Harvest
+                    print("Harvesting crops")
+                    gather_result = gather(landIndex=land_index)
+                    if not gather_result or gather_result.get('code') != 0:
+                        print("Failed to harvest")
+                        time.sleep(600)
+                        continue
+                else:
+                    print(f"Waiting for growth... Remaining time: {remain_time} seconds")
+                    # Wait for a portion of the remaining time before checking again
+                    time.sleep(min(remain_time, 600))
                     continue
             
-            # 如果还有空地或有需要收获的，短暂等待后继续循环
-            time.sleep(10)
+            time.sleep(10)  # Short delay between cycles
             
         except Exception as e:
             print(f"Error in farming loop: {e}")
-            time.sleep(1800)
+            time.sleep(600)
 
 if __name__ == "__main__":
     print("Starting farming automation...")
